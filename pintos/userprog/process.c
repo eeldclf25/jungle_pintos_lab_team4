@@ -25,6 +25,9 @@
 #include "vm/vm.h"
 #endif
 
+/* file의 동시 접근을 막기 위한 lock */
+static struct lock file_sync_lock;
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -149,11 +152,18 @@ process_file_open (const char *file_name) {
 	struct file *open_file;
 	int return_fd;
 
-	if ((return_fd = process_get_fd ()) != -1 && (open_file = filesys_open (file_name)) != NULL) {
-		current->fd_table.fd_node[return_fd] = malloc (sizeof *current->fd_table.fd_node[return_fd]);
-		if (current->fd_table.fd_node[return_fd] == NULL) PANIC("file open malloc failed");
-		current->fd_table.fd_node[return_fd]->file = open_file;
-		current->fd_table.fd_node[return_fd]->type = FD_FILE;
+	if ((return_fd = process_get_fd ()) != -1) {
+		lock_acquire (&file_sync_lock);
+		if ((open_file = filesys_open (file_name)) != NULL) {
+			current->fd_table.fd_node[return_fd] = malloc (sizeof *current->fd_table.fd_node[return_fd]);
+			if (current->fd_table.fd_node[return_fd] == NULL) PANIC("file open malloc failed");
+			current->fd_table.fd_node[return_fd]->file = open_file;
+			current->fd_table.fd_node[return_fd]->type = FD_FILE;
+		}
+		else {
+			return_fd = -1;
+		}
+		lock_release (&file_sync_lock);
 		return return_fd;
 	}
 	return -1;
@@ -164,10 +174,15 @@ process_file_open (const char *file_name) {
 int
 process_file_length (int fd) {
 	struct fd_node *node;
-
+	int temp;
+	
 	if ((node = process_check_fd (fd)) && node->type == FD_FILE) {
-		return file_length (node->file);
+		lock_acquire (&file_sync_lock);
+		temp = file_length (node->file);
+		lock_release (&file_sync_lock);
+		return temp;
 	}
+
 	return -1;
 }
 
@@ -176,12 +191,18 @@ process_file_length (int fd) {
 int
 process_file_read (int fd, void *buffer, unsigned size) {
 	struct fd_node *node;
+	int temp;
 
 	if (node = process_check_fd (fd)) {
-		if (node->type == FD_FILE)
-			return file_read (node->file, buffer, size);
-		else if (node->type == FD_STDIN)
-			return input_getc ();
+		if (node->type == FD_FILE) {
+			lock_acquire (&file_sync_lock);
+			temp = file_read (node->file, buffer, size);
+			lock_release (&file_sync_lock);
+		}
+		else if (node->type == FD_STDIN) {
+			temp = input_getc ();
+		}
+		return temp;
 	}
 	return -1;
 }
@@ -190,15 +211,21 @@ process_file_read (int fd, void *buffer, unsigned size) {
 	buffer에 있는 문자열을 가능한 만큼 작성하고 작성한 size를 반환, 안되면 -1 반환 */
 int
 process_file_write (int fd, const void *buffer, unsigned size) {
+	struct thread *cur = thread_current();
 	struct fd_node *node;
+	int temp;
 
 	if (node = process_check_fd (fd)) {
-		if (node->type == FD_FILE)
-			return file_write (node->file, buffer, size);
+		if (node->type == FD_FILE) {
+			lock_acquire (&file_sync_lock);
+			temp = file_write (node->file, buffer, size);
+			lock_release (&file_sync_lock);
+		}
 		else if (node->type == FD_STDOUT) {
 			putbuf (buffer, size);
-			return size;
+			temp = size;
 		}
+		return temp;
 	}
 	return -1;
 }
@@ -206,19 +233,29 @@ process_file_write (int fd, const void *buffer, unsigned size) {
 /* 현재 프로세스의 파일디스크립터에 해당 fd의 pos를 업데이트 하는 함수 */
 void
 process_file_seek (int fd, unsigned position) {
+
 	struct fd_node *node;
 
-	if (node = process_check_fd (fd))
+	if (node = process_check_fd (fd)) {
+		lock_acquire (&file_sync_lock);
 		file_seek (node->file, position);
+		lock_release (&file_sync_lock);
+	}
 }
 
 /* 열려진 파일 fd에서 읽히거나 써질 다음 바이트의 위치를 반환 */
 unsigned
 process_file_tell (int fd) {
 	struct fd_node *node;
+	unsigned temp;
 
-	if (node = process_check_fd (fd))
-		return file_tell (node->file);
+	if (node = process_check_fd (fd)) {
+		lock_acquire (&file_sync_lock);
+		temp = file_tell (node->file);
+		lock_release (&file_sync_lock);
+		return temp;
+	}
+	return -1;
 }
 
 /* 매개변수로 들어온 fd에 파일이 있다면 close하는 함수 */
@@ -227,9 +264,11 @@ process_file_close (int fd) {
 	struct fd_node *node;
 
 	if (node = process_check_fd (fd)) {
+		lock_acquire (&file_sync_lock);
 		thread_current ()->fd_table.fd_node[fd] = NULL;
 		file_close (node->file);
 		free (node);
+		lock_release (&file_sync_lock);
 	}
 }
 
@@ -247,6 +286,8 @@ process_create_initd (const char *file_name) {
 	char fname_buf[16];
 	char *fn_copy;
 	tid_t tid;
+
+	lock_init (&file_sync_lock);
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -278,6 +319,31 @@ initd (void *f_name) {
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
+}
+
+bool
+process_file_create (const char *file, unsigned initial_size) {
+	bool temp;
+	lock_acquire (&file_sync_lock);
+	temp = filesys_create (file, initial_size);
+	lock_release (&file_sync_lock);
+	return temp;
+}
+
+bool
+process_file_remove (const char *file) {
+	bool temp;
+	lock_acquire (&file_sync_lock);
+	temp = filesys_remove (file);
+	lock_release (&file_sync_lock);
+	return temp;
+}
+
+void
+process_exit_wrapper (int status) {
+	printf ("%s: exit(%d)\n", thread_name (), status);
+	thread_current ()->exit_status = status;
+	thread_exit ();
 }
 
 /* Clones the current process as `name`. Returns the new process's thread id, or
@@ -384,9 +450,11 @@ __do_fork (void *aux) {
 #endif
 
 	/* fork니까 부모의 스레드를 복사 */
+	lock_acquire (&file_sync_lock);
 	current->current_file = file_duplicate (parent->current_file);
 	file_deny_write (current->current_file);
 	process_duplicate (parent);
+	lock_release (&file_sync_lock);
 
 	/* Finally, switch to the newly created process. */
 	current->exit_status = 0;
@@ -483,16 +551,6 @@ process_exit (void) {
 	struct thread *curr = thread_current ();
 	struct fd_node *file_ptr;
 
-	/* 부모 프로세스에서 현재 프로세스의 list를 찾고 값을 업데이트 하고 exit */
-	for (struct list_elem *elem = list_begin(&curr->process_parent->process_child_list); elem != list_end(&curr->process_parent->process_child_list); elem = list_next (elem)) {
-		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
-
-		if (child_elem->cheild_ptr == curr) {
-			child_elem->is_dying = true;
-			child_elem->exit_state = curr->exit_status;
-		}
-	}
-
 	/* 현재 프로세스가 갖고있는 fd_table을 모두 닫고 할장 해제 */
 	for (int i = 0; i < curr->fd_table.fd_limit; i++) {
 		if (file_ptr = process_check_fd (i)) {
@@ -502,12 +560,26 @@ process_exit (void) {
 	free (curr->fd_table.fd_node);
 
 	/* 프로세스 자체가 열고있는 파일 close */
+	lock_acquire (&file_sync_lock);
+	file_allow_write (curr->current_file);
 	file_close (curr->current_file);
+	lock_release (&file_sync_lock);
 
+	/* 자식 리스트를 free 해주기 */
 	for (struct list_elem *elem = list_begin(&curr->process_child_list); elem != list_end(&curr->process_child_list); elem = list_begin(&curr->process_child_list)) {
 		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
 		list_remove (elem);
 		free (child_elem);
+	}
+
+	/* 부모 프로세스에서 현재 프로세스의 list를 찾고 값을 업데이트 하고 exit */
+	for (struct list_elem *elem = list_begin(&curr->process_parent->process_child_list); elem != list_end(&curr->process_parent->process_child_list); elem = list_next (elem)) {
+		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
+
+		if (child_elem->cheild_ptr == curr) {
+			child_elem->exit_state = curr->exit_status;
+			child_elem->is_dying = true;
+		}
 	}
 
 	/* exit 하면서 부모 스레드가 이 스레드가 끝날때까지 대기하기 위해 sema_down을 할 경우, sema_up을 실행 */
@@ -627,6 +699,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 	
+	lock_acquire (&file_sync_lock);
+
 	/* 인자 첫번째의 실행 파일 이름만 복사 */
 	strlcpy(fname_buf, file_name, (strcspn(file_name, " ") + 1));
 
@@ -638,17 +712,19 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	file = filesys_open (fname_buf);
+
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", fname_buf);
 		goto done;
 	}
 
-	if (t->current_file == NULL) {
+	if (t->current_file != NULL) {
+		file_allow_write (t->current_file);
+		file_close (t->current_file);
 		t->current_file = file;
 		file_deny_write (file);
 	}
 	else {
-		file_allow_write (t->current_file);
 		t->current_file = file;
 		file_deny_write (file);
 	}
@@ -766,6 +842,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
+	lock_release (&file_sync_lock);
 	return success;
 }
 

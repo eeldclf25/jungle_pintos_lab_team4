@@ -28,6 +28,9 @@ tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec_initd (const char *cmd_line);
 int process_exec (void *f_name);
 int process_wait (tid_t);
+bool process_file_create (const char *file, unsigned initial_size);
+bool process_file_remove (const char *file);
+void process_exit_wrapper (int status);
 void process_exit (void);
 void process_activate (struct thread *next);
 

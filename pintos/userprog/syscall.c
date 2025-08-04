@@ -6,8 +6,6 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
 #include "userprog/process.h"
 
 void syscall_entry (void);
@@ -110,9 +108,7 @@ sys_halt (void) {
 
 void
 sys_exit (int status) {
-	printf ("%s: exit(%d)\n", thread_name (), status);
-	thread_current ()->exit_status = status;
-	thread_exit ();
+	process_exit_wrapper (status);
 }
 
 tid_t
@@ -136,13 +132,13 @@ sys_wait (tid_t pid) {
 bool
 sys_create (const char *file, unsigned initial_size) {
 	check_address (file);
-	return filesys_create (file, initial_size);
+	return process_file_create (file, initial_size);
 }
 
 bool
 sys_remove (const char *file) {
 	check_address (file);
-	return filesys_remove (file);
+	return process_file_remove (file);
 }
 
 int
