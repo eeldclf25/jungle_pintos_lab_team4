@@ -518,6 +518,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 
 	t->exit_status = 0;
+	t->current_file = NULL;
 	list_init (&t->process_child_list);
 	sema_init (&t->exit_sema, 0);
 	sema_init (&t->fork_sema, 0);
