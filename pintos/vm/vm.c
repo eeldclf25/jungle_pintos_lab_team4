@@ -50,29 +50,56 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct page *new_page = NULL;
+	vm_initializer *page_init = NULL;
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
-		
-		 /* 페이지를 할당한 후 페이지의 aux(페이지->aux)에 
-		 * 인자로 받은 aux(*aux)의 내용을 저장*/
+		new_page = malloc (sizeof (struct page));
+		if (new_page == NULL)
+			goto err;
 
-		/* TODO: Insert the page into the spt. */
+		switch (VM_TYPE(type)) {
+			case VM_ANON:
+				page_init = anon_initializer;
+				break;
+			case VM_FILE:
+				page_init = file_backed_initializer;
+				break;
+		}
+
+		uninit_new (new_page, upage, init, type, aux, page_init);
+		new_page->is_writable = writable;
+
+		if (hash_insert (&spt->hash, &new_page->hash_elem) != NULL)
+			goto err;
+		else
+			return true;
 	}
 err:
+	if (new_page != NULL)
+		free (new_page);
 	return false;
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
+	struct page *temp_page = NULL;
+	struct hash_elem *page_elem = NULL;
 
-	return page;
+	temp_page = malloc (sizeof (struct page));
+	if (temp_page == NULL)
+		return NULL;
+
+	temp_page->va = va;
+	page_elem = hash_find (&spt->hash, &temp_page->hash_elem);
+	free (temp_page);
+
+	if (page_elem != NULL)
+		return hash_entry (page_elem, struct page, hash_elem);
+	else
+		return NULL;
 }
 
 /* Insert PAGE into spt with validation. */
@@ -181,19 +208,21 @@ vm_do_claim_page (struct page *page) {
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init (&spt->hash, page_hash_func, page_less_func, NULL);
-	/* page hash_func, page_less_func 작성 필요 */
 }
 
 static unsigned
-page_hash_func(const struct hash_elem *e, void *aux) {
-	/* 페이지의 va를 해시값으로 사용 : va를 페이지의 시작 주소로 rounding 해야 함 (offset 제거 필요)
-	 * hash_bytes() 함수 사용
-	 */
+page_hash_func (const struct hash_elem *e, void *aux) {
+	const struct page *e_page = hash_entry (e, struct page, hash_elem);
+	
+  	return hash_bytes (&e_page->va, sizeof e_page->va);
 }
 
 static bool
-page_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux) {
-	/* 페이지의 va를 기준으로 비교 */
+page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux) {
+	const struct page *a_page = hash_entry (a, struct page, hash_elem);
+  	const struct page *b_page = hash_entry (b, struct page, hash_elem);
+
+  	return a_page->va < b_page->va;
 }
 
 /* Copy supplemental page table from src to dst */
