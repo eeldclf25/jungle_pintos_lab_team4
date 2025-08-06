@@ -37,6 +37,9 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
+static unsigned page_hash_func(const struct hash_elem *e, void *aux);
+static bool page_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux);
+
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
@@ -53,6 +56,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		
+		 /* 페이지를 할당한 후 페이지의 aux(페이지->aux)에 
+		 * 인자로 받은 aux(*aux)의 내용을 저장*/
 
 		/* TODO: Insert the page into the spt. */
 	}
@@ -174,6 +180,20 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init (&spt->hash, page_hash_func, page_less_func, NULL);
+	/* page hash_func, page_less_func 작성 필요 */
+}
+
+static unsigned
+page_hash_func(const struct hash_elem *e, void *aux) {
+	/* 페이지의 va를 해시값으로 사용 : va를 페이지의 시작 주소로 rounding 해야 함 (offset 제거 필요)
+	 * hash_bytes() 함수 사용
+	 */
+}
+
+static bool
+page_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux) {
+	/* 페이지의 va를 기준으로 비교 */
 }
 
 /* Copy supplemental page table from src to dst */

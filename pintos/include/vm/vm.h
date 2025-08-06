@@ -31,6 +31,8 @@ enum vm_type {
 #include "filesys/page_cache.h"
 #endif
 
+#include "lib/kernel/hash.h"
+
 struct page_operations;
 struct thread;
 
@@ -46,6 +48,7 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
+	struct aux aux;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -57,6 +60,8 @@ struct page {
 		struct page_cache page_cache;
 #endif
 	};
+
+	struct hash_elem hash_elem; /* For supplemental page table */
 };
 
 /* The representation of "frame" */
@@ -64,6 +69,12 @@ struct frame {
 	void *kva;
 	struct page *page;
 };
+
+struct aux {
+	struct file *file;
+	off_t ofs;
+	size_t page_read_bytes;
+}
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
@@ -85,6 +96,7 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	struct hash hash;
 };
 
 #include "threads/thread.h"
