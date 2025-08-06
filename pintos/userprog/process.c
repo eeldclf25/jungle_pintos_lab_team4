@@ -25,6 +25,9 @@
 #include "vm/vm.h"
 #endif
 
+/* file의 동기화를 위한 lock */
+static struct lock file_lock;
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -59,8 +62,8 @@ static void
 process_fd_duplicate (struct thread *origin) {
 	struct thread *current = thread_current ();
 
-	current->fd_table.fd_limit = FD_LIMIT;
-	current->fd_table.fd_next = FD_NEXT;
+	current->fd_table.fd_limit = origin->fd_table.fd_limit;
+	current->fd_table.fd_next = origin->fd_table.fd_next;
 	current->fd_table.fd_node = calloc (current->fd_table.fd_limit, sizeof *current->fd_table.fd_node);
 	if (current->fd_table.fd_node == NULL) PANIC("dup fd table calloc failed");
 
@@ -70,10 +73,12 @@ process_fd_duplicate (struct thread *origin) {
 			if (current->fd_table.fd_node[i] == NULL) PANIC("dup std fd node malloc failed");
 
 			current->fd_table.fd_node[i]->type = origin->fd_table.fd_node[i]->type;
-			if (origin->fd_table.fd_node[i]->file != NULL)
+			if (origin->fd_table.fd_node[i]->file != NULL) {
 				current->fd_table.fd_node[i]->file = file_duplicate (origin->fd_table.fd_node[i]->file);
-			else
+			}
+			else {
 				current->fd_table.fd_node[i]->file = NULL;
+			}
 		}
 	}
 }
@@ -122,7 +127,7 @@ process_get_fd (void) {
 			return empty_fd;
 		}
 		else
-			empty_fd = (empty_fd == current->fd_table.fd_limit) ? 0 : ++empty_fd;
+			empty_fd = (empty_fd == current->fd_table.fd_limit - 1) ? 0 : empty_fd + 1;
 	}	while (empty_fd != current->fd_table.fd_next);
 
 	return -1;
@@ -149,14 +154,22 @@ process_file_open (const char *file_name) {
 	struct file *open_file;
 	int return_fd;
 
-	if ((return_fd = process_get_fd ()) != -1 && (open_file = filesys_open (file_name)) != NULL) {
-		current->fd_table.fd_node[return_fd] = malloc (sizeof *current->fd_table.fd_node[return_fd]);
-		if (current->fd_table.fd_node[return_fd] == NULL) PANIC("file open malloc failed");
-		current->fd_table.fd_node[return_fd]->file = open_file;
-		current->fd_table.fd_node[return_fd]->type = FD_FILE;
-		return return_fd;
-	}
-	return -1;
+	return_fd = process_get_fd ();
+	if (return_fd == -1)
+		return -1;
+
+	lock_acquire (&file_lock);
+	open_file = filesys_open (file_name);
+	lock_release (&file_lock);
+	if (open_file == NULL)
+		return -1;
+
+	current->fd_table.fd_node[return_fd] = malloc (sizeof *current->fd_table.fd_node[return_fd]);
+	if (current->fd_table.fd_node[return_fd] == NULL) PANIC("file open malloc failed");
+	current->fd_table.fd_node[return_fd]->file = open_file;
+	current->fd_table.fd_node[return_fd]->type = FD_FILE;
+
+	return return_fd;
 }
 
 /* 매개변수로 들어온 fd로 해당 파일을 size를 반환하는 함수
@@ -165,9 +178,14 @@ int
 process_file_length (int fd) {
 	struct fd_node *node;
 
-	if ((node = process_check_fd (fd)) && node->type == FD_FILE) {
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return -1;
+
+	if (node->type == FD_FILE) {
 		return file_length (node->file);
 	}
+
 	return -1;
 }
 
@@ -177,12 +195,15 @@ int
 process_file_read (int fd, void *buffer, unsigned size) {
 	struct fd_node *node;
 
-	if (node = process_check_fd (fd)) {
-		if (node->type == FD_FILE)
-			return file_read (node->file, buffer, size);
-		else if (node->type == FD_STDIN)
-			return input_getc ();
-	}
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return -1;
+	
+	if (node->type == FD_FILE)
+		return file_read (node->file, buffer, size);
+	else if (node->type == FD_STDIN)
+		return input_getc ();
+
 	return -1;
 }
 
@@ -191,15 +212,18 @@ process_file_read (int fd, void *buffer, unsigned size) {
 int
 process_file_write (int fd, const void *buffer, unsigned size) {
 	struct fd_node *node;
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return -1;
 
-	if (node = process_check_fd (fd)) {
-		if (node->type == FD_FILE)
-			return file_write (node->file, buffer, size);
-		else if (node->type == FD_STDOUT) {
-			putbuf (buffer, size);
-			return size;
-		}
+	if (node->type == FD_FILE) {
+		return file_write (node->file, buffer, size);
 	}
+	else if (node->type == FD_STDOUT) {
+		putbuf (buffer, size);
+		return size;
+	}
+
 	return -1;
 }
 
@@ -208,8 +232,11 @@ void
 process_file_seek (int fd, unsigned position) {
 	struct fd_node *node;
 
-	if (node = process_check_fd (fd))
-		file_seek (node->file, position);
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return;
+	
+	file_seek (node->file, position);
 }
 
 /* 열려진 파일 fd에서 읽히거나 써질 다음 바이트의 위치를 반환 */
@@ -217,8 +244,11 @@ unsigned
 process_file_tell (int fd) {
 	struct fd_node *node;
 
-	if (node = process_check_fd (fd))
-		return file_tell (node->file);
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return -1;
+
+	return file_tell (node->file);
 }
 
 /* 매개변수로 들어온 fd에 파일이 있다면 close하는 함수 */
@@ -226,11 +256,13 @@ void
 process_file_close (int fd) {
 	struct fd_node *node;
 
-	if (node = process_check_fd (fd)) {
-		thread_current ()->fd_table.fd_node[fd] = NULL;
-		file_close (node->file);
-		free (node);
-	}
+	node = process_check_fd (fd);
+	if (node == NULL)
+		return;
+
+	thread_current ()->fd_table.fd_node[fd] = NULL;
+	file_close (node->file);
+	free (node);
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -247,6 +279,8 @@ process_create_initd (const char *file_name) {
 	char fname_buf[16];
 	char *fn_copy;
 	tid_t tid;
+
+	lock_init(&file_lock);
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -385,7 +419,6 @@ __do_fork (void *aux) {
 
 	/* fork니까 부모의 스레드를 복사 */
 	current->current_file = file_duplicate (parent->current_file);
-	file_deny_write (current->current_file);
 	process_duplicate (parent);
 
 	/* Finally, switch to the newly created process. */
@@ -425,7 +458,9 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
+	lock_acquire (&file_lock);
 	success = load (file_name, &_if);
+	lock_release (&file_lock);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -643,15 +678,10 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	if (t->current_file == NULL) {
-		t->current_file = file;
-		file_deny_write (file);
-	}
-	else {
-		file_allow_write (t->current_file);
-		t->current_file = file;
-		file_deny_write (file);
-	}
+	if (t->current_file != NULL)
+		file_close (t->current_file);
+	file_deny_write (file);
+	t->current_file = file;
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr

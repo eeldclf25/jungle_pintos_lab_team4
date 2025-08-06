@@ -2,6 +2,10 @@
     "name": "pintos-dev",
     "dockerFile": "Dockerfile",
     "remoteUser": "jungle",
+    // "runArgs": [
+    //     "--cpus=0.2",
+    //     "--memory=512m"
+    // ],
     "customizations": {
         "vscode": {
             "extensions": [

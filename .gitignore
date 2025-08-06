@@ -5,6 +5,7 @@
 
 # custom
 .test_status
+.while_test_status
 
 ### Linux ###
 *~
