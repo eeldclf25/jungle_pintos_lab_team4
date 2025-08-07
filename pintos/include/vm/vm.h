@@ -67,12 +67,14 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
 };
 
-struct aux {
+struct load_arg {
 	struct file *file;
 	off_t ofs;
 	size_t page_read_bytes;
+	size_t page_zero_bytes;
 };
 
 /* The function table for page operations.
