@@ -3,6 +3,11 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
+
+/* 현재 사용중인 프레임을 저장하기 위한 list */
+static struct list frame_list;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -15,7 +20,7 @@ vm_init (void) {
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
-	/* TODO: Your code goes here. */
+	list_init (&frame_list);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -55,10 +60,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		new_page = malloc (sizeof (struct page));
-		if (new_page == NULL)
-			goto err;
-
 		switch (VM_TYPE(type)) {
 			case VM_ANON:
 				page_init = anon_initializer;
@@ -68,13 +69,17 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 				break;
 		}
 
+		new_page = malloc (sizeof (struct page));
+		if (new_page == NULL)
+			goto err;
+
 		uninit_new (new_page, upage, init, type, aux, page_init);
 		new_page->is_writable = writable;
 
-		if (hash_insert (&spt->hash, &new_page->hash_elem) != NULL)
+		if (!spt_insert_page (spt, new_page))
 			goto err;
-		else
-			return true;
+
+		return true;
 	}
 err:
 	if (new_page != NULL)
@@ -92,7 +97,7 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	if (temp_page == NULL)
 		return NULL;
 
-	temp_page->va = va;
+	temp_page->va = pg_round_down (va);
 	page_elem = hash_find (&spt->hash, &temp_page->hash_elem);
 	free (temp_page);
 
@@ -106,10 +111,13 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
+	struct hash_elem *page_elem = NULL;
 
-	return succ;
+	page_elem = hash_insert (&spt->hash, &page->hash_elem);
+	if (page_elem == NULL)
+		return true;
+	else
+		return false;
 }
 
 void
@@ -144,7 +152,19 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
+	uint8_t *kpage;
+
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+	if (kpage == NULL) {
+		// 실패할 경우, 프레임을 evict 해야함
+	}
+
+	frame = malloc (sizeof (struct frame));
+	if (frame == NULL) PANIC("frame malloc failed");
+
+	list_push_back (&frame_list, &frame->elem);
+	frame->kva = kpage;
+	frame->page = NULL;
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -167,9 +187,19 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
 
+	if (!user)
+		return false;
+	
+	page = spt_find_page (spt, addr);
+	if (page == NULL)
+		return false;
+
+	if (page->is_writable == false && write == true)
+		return false;
+
+	// 스택 성장 조건도 확인
+	
 	return vm_do_claim_page (page);
 }
 
@@ -193,13 +223,17 @@ vm_claim_page (void *va UNUSED) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+	struct thread *curr = thread_current ();
 	struct frame *frame = vm_get_frame ();
 
-	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	if (pml4_get_page (curr->pml4, page->va) != NULL)
+		return false;
+	
+	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->is_writable))
+		return false;
 
 	return swap_in (page, frame->kva);
 }

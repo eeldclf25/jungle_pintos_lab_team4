@@ -950,9 +950,20 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	struct load_arg *segment = (struct load_arg *) aux;
+	bool succ;
+
+	file_seek (segment->file, segment->ofs);
+	if (file_read (segment->file, page->frame->kva, segment->page_read_bytes) != (int) segment->page_read_bytes) {
+		succ = false;
+	}
+	else {
+		memset (page->frame->kva + segment->page_read_bytes, 0, segment->page_zero_bytes);
+		succ = true;
+	}
+
+	free (aux);
+	return succ;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -982,11 +993,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
-		struct aux *aux = malloc(sizeof (struct aux));
+		struct load_arg *aux = malloc(sizeof (struct load_arg));
+		if (aux == NULL) PANIC("lazy_load_aux malloc failed");
 		
 		aux->file = file;
 		aux->ofs = ofs;
 		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
 
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux)) {
 			free(aux);
@@ -999,6 +1012,16 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		upage += PGSIZE;
 	}
 	return true;
+}
+
+static bool
+install_pageeeee (void *upage, void *kpage, bool writable) {
+	struct thread *t = thread_current ();
+
+	/* Verify that there's not already a page at that virtual
+	 * address, then map our page there. */
+	return (pml4_get_page (t->pml4, upage) == NULL
+			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
@@ -1014,6 +1037,23 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. 
 	 해당 페이지를 스택으로 표시*/
 	/* TODO: Your code goes here */
+
+
+
+
+	//일단 되는지 안되는지 테스트용 유저 프로그램 setup_stack (vm 함수 작업시 삭제)
+	uint8_t *kpage;
+	bool successssssssssssssss = false;
+
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+	if (kpage != NULL) {
+		successssssssssssssss = install_pageeeee (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
+		if (successssssssssssssss)
+			if_->rsp = USER_STACK;
+		else
+			palloc_free_page (kpage);
+	}
+	return successssssssssssssss;
 
 	return success;
 }
