@@ -237,9 +237,9 @@ thread_create (const char *name, int priority,
 	struct child_state *t_state = malloc (sizeof (struct child_state));
 	if (t_state == NULL) PANIC("thread t_state malloc failed");
 
-	t_state->cheild_tid = t->tid;
+	t_state->child_tid = t->tid;
 	t_state->is_dying = false;
-	t_state->cheild_ptr = t;
+	t_state->child_ptr = t;
 
 	struct thread *cur = thread_current ();
 	list_push_back (&thread_current ()->process_child_list, &t_state->elem);

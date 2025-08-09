@@ -37,10 +37,10 @@ struct fd_table {
 };
 
 struct child_state {
-	tid_t cheild_tid;
+	tid_t child_tid;
 	bool is_dying;
 	int exit_state;
-	struct thread *cheild_ptr;
+	struct thread *child_ptr;
 	struct list_elem elem;
 };
 
