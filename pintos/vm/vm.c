@@ -188,7 +188,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 
-	if (!user)
+	if (is_kernel_vaddr (addr))
 		return false;
 	
 	page = spt_find_page (spt, addr);
@@ -214,10 +214,13 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function */
+	struct thread *curr = thread_current ();
+	struct page *page = spt_find_page (&curr->spt, va);
 
-	return vm_do_claim_page (page);
+	if (page == NULL)
+		return false;
+	else
+		return vm_do_claim_page (page);
 }
 
 /* Claim the PAGE and set up the mmu. */
