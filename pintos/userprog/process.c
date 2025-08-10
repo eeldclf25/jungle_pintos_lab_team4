@@ -90,7 +90,7 @@ process_get_child (tid_t child_tid) {
 	struct thread *current = thread_current ();
 
 	for (struct list_elem *elem = list_begin(&current->process_child_list); elem != list_end(&current->process_child_list); elem = list_next (elem)) {
-		if (child_tid == list_entry(elem, struct child_state, elem)->cheild_tid)
+		if (child_tid == list_entry(elem, struct child_state, elem)->child_tid)
 			return list_entry(elem, struct child_state, elem);
 	}
 
@@ -325,7 +325,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 	memcpy (&cur->fork_tf, if_, sizeof (struct intr_frame));
 	if ((child_tid = thread_create (name, PRI_DEFAULT, __do_fork, cur)) != TID_ERROR)
-		sema_down (&process_get_child (child_tid)->cheild_ptr->fork_sema);
+		sema_down (&process_get_child (child_tid)->child_ptr->fork_sema);
 	else
 		return TID_ERROR;
 	
@@ -497,9 +497,9 @@ process_wait (tid_t child_tid UNUSED) {
 	for (struct list_elem *elem = list_begin(&current->process_child_list); elem != list_end(&current->process_child_list); elem = list_next (elem)) {
 		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
 
-		if (child_tid == child_elem->cheild_tid) {
+		if (child_tid == child_elem->child_tid) {
 			if (child_elem->is_dying == false) {
-				sema_down (&child_elem->cheild_ptr->exit_sema);
+				sema_down (&child_elem->child_ptr->exit_sema);
 			}
 
 			int exit_state = child_elem->exit_state;
@@ -522,7 +522,7 @@ process_exit (void) {
 	for (struct list_elem *elem = list_begin(&curr->process_parent->process_child_list); elem != list_end(&curr->process_parent->process_child_list); elem = list_next (elem)) {
 		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
 
-		if (child_elem->cheild_ptr == curr) {
+		if (child_elem->child_ptr == curr) {
 			child_elem->is_dying = true;
 			child_elem->exit_state = curr->exit_status;
 		}
@@ -539,6 +539,7 @@ process_exit (void) {
 	/* 프로세스 자체가 열고있는 파일 close */
 	file_close (curr->current_file);
 
+	/* 자신이 갖고있는 자식 리스트를 전부 삭제 */
 	for (struct list_elem *elem = list_begin(&curr->process_child_list); elem != list_end(&curr->process_child_list); elem = list_begin(&curr->process_child_list)) {
 		struct child_state *child_elem = list_entry(elem, struct child_state, elem);
 		list_remove (elem);
@@ -1009,52 +1010,29 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+		ofs += page_read_bytes;
 		upage += PGSIZE;
 	}
 	return true;
 }
 
-static bool
-install_pageeeee (void *upage, void *kpage, bool writable) {
-	struct thread *t = thread_current ();
-
-	/* Verify that there's not already a page at that virtual
-	 * address, then map our page there. */
-	return (pml4_get_page (t->pml4, upage) == NULL
-			&& pml4_set_page (t->pml4, upage, kpage, writable));
-}
-
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+	bool success = false;
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	스택의 바닥(stack_bottom)에 스택을 매핑하고, 즉시 해당 페이지를 할당(claim)하세요.
-	 * TODO: If success, set the rsp accordingly.
-	 성공했다면, rsp 레지스터를 그에 맞게 설정하세요
-	 * TODO: You should mark the page is stack. 
-	 해당 페이지를 스택으로 표시*/
-	/* TODO: Your code goes here */
+	if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, stack_bottom, true, NULL, NULL))
+		goto done;
+	
+	if (!vm_claim_page (stack_bottom))
+		goto done;
 
+	thread_current ()->stack_bottom = stack_bottom;
+	if_->rsp = USER_STACK;
 
-
-
-	//일단 되는지 안되는지 테스트용 유저 프로그램 setup_stack (vm 함수 작업시 삭제)
-	uint8_t *kpage;
-	bool successssssssssssssss = false;
-
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-	if (kpage != NULL) {
-		successssssssssssssss = install_pageeeee (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
-		if (successssssssssssssss)
-			if_->rsp = USER_STACK;
-		else
-			palloc_free_page (kpage);
-	}
-	return successssssssssssssss;
-
+	success = true;
+done:
 	return success;
 }
 #endif /* VM */
