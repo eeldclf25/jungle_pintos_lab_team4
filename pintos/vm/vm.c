@@ -122,6 +122,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete (&spt->hash, &page->hash_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -141,6 +142,7 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	swap_out(victim->page);
 
 	return NULL;
 }
@@ -188,16 +190,19 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 
-	if (!user)
+	/* case 1 : 포인터 자체가 유효한가(유저 영역, not NULL, 페이지가 존재) */
+	if (!user || addr == NULL)
 		return false;
 	
 	page = spt_find_page (spt, addr);
 	if (page == NULL)
 		return false;
 
+	/* case 2 : 읽기 전용 페이지에 쓰기 요청을 했는가? (vm_handle_wp)*/
 	if (page->is_writable == false && write == true)
 		return false;
 
+	/* case 3 : lazy load 또는 swap in이 필요한 경우 */
 	// 스택 성장 조건도 확인
 	
 	return vm_do_claim_page (page);
@@ -214,8 +219,10 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function */
+	struct page *page = spt_find_page (thread_current ()->spt, va);
+	
+	if (page == NULL)
+		return false;
 
 	return vm_do_claim_page (page);
 }
@@ -245,14 +252,14 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 }
 
 static unsigned
-page_hash_func (const struct hash_elem *e, void *aux) {
+page_hash_func (const struct hash_elem *e, void *aux UNUSED) {
 	const struct page *e_page = hash_entry (e, struct page, hash_elem);
 	
   	return hash_bytes (&e_page->va, sizeof e_page->va);
 }
 
 static bool
-page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux) {
+page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
 	const struct page *a_page = hash_entry (a, struct page, hash_elem);
   	const struct page *b_page = hash_entry (b, struct page, hash_elem);
 

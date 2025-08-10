@@ -10,6 +10,8 @@
 #include "filesys/filesys.h"
 #include "userprog/process.h"
 
+#include "threads/vaddr.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -96,6 +98,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			sys_close(f->R.rdi);
 			break;
+		case SYS_MMAP:
+			f->R.rax = sys_mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			sys_munmap(f->R.rdi);
+			break;
 		default:
 			printf ("system call exiting\n");
 			thread_exit ();
@@ -181,4 +189,38 @@ sys_tell (int fd) {
 void 
 sys_close (int fd){
 	process_file_close (fd);
+}
+
+void *
+sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+	/* check 1 : addr(0이 아닌 유저 영역), length의 유효성 */
+	if (addr == NULL || is_kernel_vaddr(addr) || length == 0)
+		return NULL;
+
+	/* check 2 : addr이 page-align 됨 */
+	if (pg_round_down(addr) != addr)
+		return NULL;
+
+	/* check 3 : 기존 페이지와 겹치지 않음 */
+	if (spt_find_page(&thread_current()->spt, addr) != NULL)
+		return NULL;
+	
+	/* check 4 : 파일이 stdin/out이 아님 */
+	if (fd == FD_STDIN || fd == FD_STDOUT)
+		return NULL;
+
+	struct file *file = process_get_file(fd);
+	if (file == NULL)
+		return NULL;
+
+	/* check 5 : 파일의 크기가 0인지 */
+	if (file_length(file) == 0)
+		return NULL;
+	
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+void
+sys_munmap(void *addr) {
+	do_munmap(addr);
 }
