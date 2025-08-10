@@ -550,6 +550,10 @@ process_exit (void) {
 	sema_up (&curr->exit_sema);
 
 	process_cleanup ();	
+	
+#ifdef VM
+	hash_destroy (&curr->spt, NULL);
+#endif
 }
 
 /* Free the current process's resources. */
