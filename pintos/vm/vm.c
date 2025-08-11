@@ -151,6 +151,7 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	swap_out(victim->page);
 
 	return NULL;
 }
@@ -272,14 +273,14 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 }
 
 static unsigned
-page_hash_func (const struct hash_elem *e, void *aux) {
+page_hash_func (const struct hash_elem *e, void *aux UNUSED) {
 	const struct page *e_page = hash_entry (e, struct page, hash_elem);
 	
   	return hash_bytes (&e_page->va, sizeof e_page->va);
 }
 
 static bool
-page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux) {
+page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
 	const struct page *a_page = hash_entry (a, struct page, hash_elem);
   	const struct page *b_page = hash_entry (b, struct page, hash_elem);
 

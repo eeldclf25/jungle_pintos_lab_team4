@@ -21,5 +21,7 @@ int sys_write (int fd, const void *buffer, unsigned size);
 void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
 void sys_close(int fd);
+void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void sys_munmap(void *addr);
 
 #endif /* userprog/syscall.h */
