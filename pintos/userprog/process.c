@@ -409,6 +409,7 @@ __do_fork (void *aux) {
 
 	process_activate (current);
 #ifdef VM
+	current->stack_bottom = parent->stack_bottom;
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
@@ -549,7 +550,11 @@ process_exit (void) {
 	/* exit 하면서 부모 스레드가 이 스레드가 끝날때까지 대기하기 위해 sema_down을 할 경우, sema_up을 실행 */
 	sema_up (&curr->exit_sema);
 
-	process_cleanup ();	
+	process_cleanup ();
+	
+#ifdef VM
+	hash_destroy (&curr->spt, NULL);
+#endif
 }
 
 /* Free the current process's resources. */

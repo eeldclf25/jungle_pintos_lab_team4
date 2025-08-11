@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "userprog/process.h"
+#include <string.h>
 
 /* 현재 사용중인 프레임을 저장하기 위한 list */
 static struct list frame_list;
@@ -120,6 +122,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		return false;
 }
 
+/* vm 끝까지 안쓴다면, 함수 삭제 */
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	vm_dealloc_page (page);
@@ -207,7 +210,15 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
  * DO NOT MODIFY THIS FUNCTION. */
 void
 vm_dealloc_page (struct page *page) {
+	struct frame *delete_frame = page->frame;
+
+	if (delete_frame != NULL) {
+		list_remove (&delete_frame->elem);
+		free (delete_frame);
+	}
+	
 	destroy (page);
+	
 	free (page);
 }
 
@@ -264,13 +275,59 @@ page_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux)
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, struct supplemental_page_table *src UNUSED) {
+    struct hash_iterator i;
+	bool success = false;
+
+    hash_first(&i, &src->hash);
+    while(hash_next(&i)){
+		struct page *parent_page = hash_entry (hash_cur(&i), struct page, hash_elem);
+		void *parent_va = parent_page->va;
+		bool parent_writable = parent_page->is_writable;
+
+		switch (parent_page->operations->type) {
+			case VM_UNINIT:
+				enum vm_type lazy_type = parent_page->uninit.type;
+				vm_initializer *parent_init = parent_page->uninit.init;
+				void *parent_aux;
+
+				parent_aux = malloc(sizeof (struct load_arg));
+				if (parent_aux == NULL) PANIC("hash_duplicate_page_aux malloc failed");
+				memcpy(parent_aux, parent_page->uninit.aux, sizeof (struct load_arg));
+
+				if (!vm_alloc_page_with_initializer (lazy_type, parent_va, parent_writable, parent_init, parent_aux)) {
+					free (parent_aux);
+					goto done;
+				}
+				break;
+			default:	//file 타입 spt까지 쓰게 된다면, default 지우고 각각 switch 하기
+				enum vm_type parent_type = parent_page->operations->type;
+				struct page *curr_page = NULL;
+
+				if (!vm_alloc_page_with_initializer (parent_type, parent_va, parent_writable, NULL, NULL))
+					goto done;
+
+				if ((curr_page = spt_find_page (dst, parent_va)) == NULL || !vm_do_claim_page (curr_page))
+					goto done;
+				
+				memcpy(curr_page->frame->kva, parent_page->frame->kva, PGSIZE);
+				break;
+		}
+    }
+
+	success = true;
+done:
+    return success;
+}
+
+static void
+hash_delete_page (struct hash_elem *e, void *aux) {
+	struct page *delete_page = hash_entry (e, struct page, hash_elem);
+	vm_dealloc_page (delete_page);
 }
 
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear (&spt->hash, hash_delete_page);
 }
