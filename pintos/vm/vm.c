@@ -40,6 +40,7 @@ page_get_type (struct page *page) {
 }
 
 /* Helpers */
+static void vm_free_frame (struct frame *frame);
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
@@ -111,12 +112,8 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	struct hash_elem *page_elem = NULL;
-
-	page_elem = hash_insert (&spt->hash, &page->hash_elem);
-	if (page_elem == NULL)
+spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
+	if (!hash_insert (&spt->hash, &page->hash_elem))
 		return true;
 	else
 		return false;
@@ -125,8 +122,18 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 /* vm 끝까지 안쓴다면, 함수 삭제 */
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete (&spt->hash, &page->hash_elem);
+	vm_free_frame (page->frame);
 	vm_dealloc_page (page);
-	return true;
+}
+
+/* 들어오는 frame을 free 해주는 함수 */
+static void
+vm_free_frame (struct frame *frame) {
+	if (frame != NULL) {
+		list_remove (&frame->elem);
+		free (frame);
+	}
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -255,7 +262,9 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	hash_init (&spt->hash, page_hash_func, page_less_func, NULL);
+	if (!hash_init (&spt->hash, page_hash_func, page_less_func, NULL)) {
+		PANIC("SPT hash initialization failed");
+	}
 }
 
 static unsigned
@@ -323,6 +332,7 @@ done:
 static void
 hash_delete_page (struct hash_elem *e, void *aux) {
 	struct page *delete_page = hash_entry (e, struct page, hash_elem);
+	vm_free_frame (delete_page->frame);
 	vm_dealloc_page (delete_page);
 }
 
