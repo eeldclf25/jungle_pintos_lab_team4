@@ -1060,19 +1060,19 @@ process_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
 	/* check 3 : 기존 페이지와 겹치지 않음 */
 	if (spt_find_page(&thread_current()->spt, addr) != NULL)
 		return NULL;
-	
+
+	struct fd_node *fd_node = process_check_fd(fd);
+	if (fd_node == NULL)
+		return NULL;
+
 	/* check 4 : 파일이 stdin/out이 아님 */
-	if (fd == FD_STDIN || fd == FD_STDOUT)
+	if (fd_node->type != FD_FILE)
 		return NULL;
 
-	struct file *file = &process_check_fd(fd)->file;
-	if (file == NULL)
-		return NULL;
-
-	/* check 5 : 파일의 크기가 0인지 */
-	if (file_length(file) == 0)
+	/* check 5 : 파일 크기의 유효성 */
+	if (file_length(fd_node->file) == 0 || length + offset > file_length(fd_node->file))
 		return NULL;
 	
-	return do_mmap(addr, length, writable, file, offset);
+	return do_mmap(addr, length, writable, fd_node->file, offset);
 }
 #endif /* VM */
