@@ -182,8 +182,11 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
+static bool
 vm_stack_growth (void *addr UNUSED) {
+	if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, addr, true, NULL, NULL))
+		return false;
+	return true;
 }
 
 /* Handle the fault on write_protected page */
@@ -195,37 +198,38 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	struct thread *curr = thread_current ();
+	struct supplemental_page_table *spt = &curr->spt;
 	struct page *page = NULL;
 
-	if (is_kernel_vaddr (addr))
-		return false;
-	
-	page = spt_find_page (spt, addr);
-	if (page == NULL)
+	if (addr == NULL || is_kernel_vaddr (addr))
 		return false;
 
-	if (page->is_writable == false && write == true)
-		return false;
-
-	// 스택 성장 조건도 확인
+	if (not_present == false) {
+        // cow 기능 구현하기. 지금은 무조건 false
+        return false;
+    }
 	
-	return vm_do_claim_page (page);
+	if ((page = spt_find_page (spt, addr)) != NULL) {
+		if (page->is_writable == false && write == true)
+			return false;
+		else
+			return vm_do_claim_page (page);
+	}
+
+	if (user == true && addr == (curr->user_rsp - 8) && addr >= USER_STACK_MAX) {
+		curr->stack_bottom -= PGSIZE;
+		return vm_stack_growth (curr->stack_bottom);
+	}
+
+	return false;
 }
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
 void
 vm_dealloc_page (struct page *page) {
-	struct frame *delete_frame = page->frame;
-
-	if (delete_frame != NULL) {
-		list_remove (&delete_frame->elem);
-		free (delete_frame);
-	}
-	
 	destroy (page);
-	
 	free (page);
 }
 

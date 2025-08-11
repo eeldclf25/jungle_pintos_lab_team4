@@ -412,6 +412,7 @@ __do_fork (void *aux) {
 	process_activate (current);
 #ifdef VM
 	current->stack_bottom = parent->stack_bottom;
+	current->user_rsp = parent->user_rsp;
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
@@ -1026,6 +1027,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
+	struct thread *curr = thread_current ();
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 	bool success = false;
 
@@ -1035,7 +1037,8 @@ setup_stack (struct intr_frame *if_) {
 	if (!vm_claim_page (stack_bottom))
 		goto done;
 
-	thread_current ()->stack_bottom = stack_bottom;
+	curr->stack_bottom = stack_bottom;
+	curr->user_rsp = USER_STACK;
 	if_->rsp = USER_STACK;
 
 	success = true;
