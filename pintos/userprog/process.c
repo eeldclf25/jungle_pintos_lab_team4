@@ -198,6 +198,8 @@ process_file_read (int fd, void *buffer, unsigned size) {
 	node = process_check_fd (fd);
 	if (node == NULL)
 		return -1;
+	if (spt_find_page (&thread_current ()->spt, buffer)->is_writable == false)
+		sys_exit (-1);
 	
 	if (node->type == FD_FILE)
 		return file_read (node->file, buffer, size);
