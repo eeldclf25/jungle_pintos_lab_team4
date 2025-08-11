@@ -37,10 +37,10 @@ struct fd_table {
 };
 
 struct child_state {
-	tid_t cheild_tid;
+	tid_t child_tid;
 	bool is_dying;
 	int exit_state;
-	struct thread *cheild_ptr;
+	struct thread *child_ptr;
 	struct list_elem elem;
 };
 
@@ -133,6 +133,8 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	void *stack_bottom;
+	uintptr_t user_rsp;
 #endif
 
 	/* Owned by thread.c. */

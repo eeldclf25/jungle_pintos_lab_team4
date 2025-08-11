@@ -45,7 +45,7 @@ syscall_init (void) {
 	커널 주소 영역이거나 유저 페이지 테이블에 매핑 되지 않은 주소 라면 종료(exit(-1)) 시킵니다. */
 void
 check_address (void *addr) {
-	if (is_kernel_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == 0) {
+	if (is_kernel_vaddr(addr) || addr == NULL) {
 		sys_exit (-1);
 	}
 }
