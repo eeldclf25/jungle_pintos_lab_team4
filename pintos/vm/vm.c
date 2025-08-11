@@ -40,6 +40,7 @@ page_get_type (struct page *page) {
 }
 
 /* Helpers */
+static void vm_free_frame (struct frame *frame);
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
@@ -111,12 +112,8 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	struct hash_elem *page_elem = NULL;
-
-	page_elem = hash_insert (&spt->hash, &page->hash_elem);
-	if (page_elem == NULL)
+spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
+	if (!hash_insert (&spt->hash, &page->hash_elem))
 		return true;
 	else
 		return false;
@@ -125,8 +122,18 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 /* vm 끝까지 안쓴다면, 함수 삭제 */
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete (&spt->hash, &page->hash_elem);
+	vm_free_frame (page->frame);
 	vm_dealloc_page (page);
-	return true;
+}
+
+/* 들어오는 frame을 free 해주는 함수 */
+static void
+vm_free_frame (struct frame *frame) {
+	if (frame != NULL) {
+		list_remove (&frame->elem);
+		free (frame);
+	}
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -175,8 +182,11 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
+static bool
 vm_stack_growth (void *addr UNUSED) {
+	if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, addr, true, NULL, NULL))
+		return false;
+	return true;
 }
 
 /* Handle the fault on write_protected page */
@@ -188,37 +198,38 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	struct thread *curr = thread_current ();
+	struct supplemental_page_table *spt = &curr->spt;
 	struct page *page = NULL;
 
-	if (is_kernel_vaddr (addr))
-		return false;
-	
-	page = spt_find_page (spt, addr);
-	if (page == NULL)
+	if (addr == NULL || is_kernel_vaddr (addr))
 		return false;
 
-	if (page->is_writable == false && write == true)
-		return false;
-
-	// 스택 성장 조건도 확인
+	if (not_present == false) {
+        // cow 기능 구현하기. 지금은 무조건 false
+        return false;
+    }
 	
-	return vm_do_claim_page (page);
+	if ((page = spt_find_page (spt, addr)) != NULL) {
+		if (page->is_writable == false && write == true)
+			return false;
+		else
+			return vm_do_claim_page (page);
+	}
+
+	if (user == true && addr == (curr->user_rsp - 8) && addr >= USER_STACK_MAX) {
+		curr->stack_bottom -= PGSIZE;
+		return vm_stack_growth (curr->stack_bottom);
+	}
+
+	return false;
 }
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
 void
 vm_dealloc_page (struct page *page) {
-	struct frame *delete_frame = page->frame;
-
-	if (delete_frame != NULL) {
-		list_remove (&delete_frame->elem);
-		free (delete_frame);
-	}
-	
 	destroy (page);
-	
 	free (page);
 }
 
@@ -255,7 +266,9 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	hash_init (&spt->hash, page_hash_func, page_less_func, NULL);
+	if (!hash_init (&spt->hash, page_hash_func, page_less_func, NULL)) {
+		PANIC("SPT hash initialization failed");
+	}
 }
 
 static unsigned
@@ -323,6 +336,7 @@ done:
 static void
 hash_delete_page (struct hash_elem *e, void *aux) {
 	struct page *delete_page = hash_entry (e, struct page, hash_elem);
+	vm_free_frame (delete_page->frame);
 	vm_dealloc_page (delete_page);
 }
 
