@@ -337,7 +337,7 @@ done:
 static void
 hash_delete_page (struct hash_elem *e, void *aux) {
 	struct page *delete_page = hash_entry (e, struct page, hash_elem);
-	vm_free_frame (delete_page->frame);
+	// vm_free_frame (delete_page->frame);
 	vm_dealloc_page (delete_page);
 }
 

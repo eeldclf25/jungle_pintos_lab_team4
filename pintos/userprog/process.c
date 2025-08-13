@@ -958,7 +958,7 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	struct load_arg *segment = (struct load_arg *) aux;
 	bool succ;
@@ -1049,7 +1049,7 @@ done:
 
 void *
 process_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
-	/* check 1 : addr(0이 아닌 유저 영역), length의 유효성 */
+	/* check 1 : addr(0이 아닌 유저 영역) 유효성, length의 0여부 */
 	if (addr == NULL || is_kernel_vaddr(addr) || length == 0)
 		return NULL;
 
@@ -1070,9 +1070,9 @@ process_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
 		return NULL;
 
 	/* check 5 : 파일 크기의 유효성 */
-	if (file_length(fd_node->file) == 0 || length + offset > file_length(fd_node->file))
+	if (file_length(fd_node->file) == 0 || offset >= file_length(fd_node->file))
 		return NULL;
-	
+
 	return do_mmap(addr, length, writable, fd_node->file, offset);
 }
 #endif /* VM */

@@ -32,4 +32,8 @@ void process_exit (void);
 void process_activate (struct thread *next);
 void *process_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 
+#ifdef VM
+bool lazy_load_segment (struct page *page, void *aux);
+#endif /* VM */
+
 #endif /* userprog/process.h */
