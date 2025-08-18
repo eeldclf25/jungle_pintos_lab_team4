@@ -6,7 +6,8 @@
 
 void syscall_init (void);
 
-void check_address (void *addr);
+void check_address_exit (void *addr);
+bool check_address_bool (void *addr);
 void sys_halt (void);
 void sys_exit (int status);
 tid_t sys_fork (const char *thread_name, struct intr_frame *f);

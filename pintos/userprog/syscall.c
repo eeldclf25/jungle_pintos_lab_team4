@@ -44,10 +44,18 @@ syscall_init (void) {
 /* 시스템 콜 인자로 전달된 유저 포인터가 가리키고 있는 주소가 유효 한지 확인합니다.
 	커널 주소 영역이거나 유저 페이지 테이블에 매핑 되지 않은 주소 라면 종료(exit(-1)) 시킵니다. */
 void
-check_address (void *addr) {
+check_address_exit (void *addr) {
 	if (is_kernel_vaddr(addr) || addr == NULL) {
 		sys_exit (-1);
 	}
+}
+
+bool
+check_address_bool (void *addr) {
+	if (is_kernel_vaddr(addr) || addr == NULL || (USER_STACK_MAX < addr && addr < USER_STACK)) {
+		return false;
+	}
+	return true;
 }
 
 /* The main system call interface */
@@ -125,13 +133,13 @@ sys_exit (int status) {
 
 tid_t
 sys_fork (const char *thread_name, struct intr_frame *f) {
-	check_address (thread_name);
+	check_address_exit (thread_name);
 	return process_fork (thread_name, f);
 }
 
 int 
 sys_exec (const char *cmd_line){
-	check_address(cmd_line);
+	check_address_exit(cmd_line);
 	if (process_exec (cmd_line) < 0)
 		sys_exit (-1);
 }
@@ -143,19 +151,19 @@ sys_wait (tid_t pid) {
 
 bool
 sys_create (const char *file, unsigned initial_size) {
-	check_address (file);
+	check_address_exit (file);
 	return filesys_create (file, initial_size);
 }
 
 bool
 sys_remove (const char *file) {
-	check_address (file);
+	check_address_exit (file);
 	return filesys_remove (file);
 }
 
 int
 sys_open (const char *file) {
-	check_address (file);
+	check_address_exit (file);
 	return process_file_open (file);
 }
 
@@ -166,13 +174,13 @@ sys_filesize (int fd) {
 
 int
 sys_read (int fd, void *buffer, unsigned size) {
-	check_address (buffer);
+	check_address_exit (buffer);
 	return process_file_read (fd, buffer, size);
 }
 
 int
 sys_write (int fd, const void *buffer, unsigned size) {
-	check_address (buffer);
+	check_address_exit (buffer);
 	return process_file_write (fd, buffer, size);
 }
 
@@ -193,10 +201,14 @@ sys_close (int fd){
 
 void *
 sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
-	return process_mmap(addr, length, writable, fd, offset);
+	if (check_address_bool (addr))
+		return process_mmap(addr, length, writable, fd, offset);
+	else
+		return NULL;
 }
 
 void
 sys_munmap(void *addr) {
-	do_munmap(addr);
+	if (check_address_bool (addr))
+		process_munmap (addr);
 }
