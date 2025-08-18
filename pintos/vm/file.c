@@ -27,59 +27,62 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
-
 	struct file_page *file_page = &page->file;
+
+	file_page->type = type;
+
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
 
-	/* 현재 페이지 load_arg 불러오기 */
-	struct load_arg *aux = file_page->aux;
+	// /* 현재 페이지 load_arg 불러오기 */
+	// struct load_arg *aux = file_page->aux;
 
-	struct file *file = aux->file;
-	off_t offset = aux->ofs;
-	size_t page_read_bytes = aux->page_read_bytes;
-	size_t page_zero_bytes = aux->page_zero_bytes;
+	// struct file *file = aux->file;
+	// off_t offset = aux->ofs;
+	// size_t page_read_bytes = aux->page_read_bytes;
+	// size_t page_zero_bytes = aux->page_zero_bytes;
 
-	file_seek(file, offset);
+	// file_seek(file, offset);
 
-	if (file_read(file, kva, page_read_bytes) != page_read_bytes)
-		return false;
+	// if (file_read(file, kva, page_read_bytes) != page_read_bytes)
+	// 	return false;
 
-	memset(kva + page_read_bytes, 0, page_zero_bytes);
+	// memset(kva + page_read_bytes, 0, page_zero_bytes);
 
-	return true;
+	// return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
 
-	/* 수정여부 확인 - 수정된 경우 파일에 반영 */
-	if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-		/* 현재 페이지 load_arg 불러오기 */
-		struct load_arg *aux = file_page->aux;
+	// /* 수정여부 확인 - 수정된 경우 파일에 반영 */
+	// if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+	// 	/* 현재 페이지 load_arg 불러오기 */
+	// 	struct load_arg *aux = file_page->aux;
 
-		struct file *file = aux->file;
-		off_t offset = aux->ofs;
-		size_t page_read_bytes = aux->page_read_bytes;
+	// 	struct file *file = aux->file;
+	// 	off_t offset = aux->ofs;
+	// 	size_t page_read_bytes = aux->page_read_bytes;
 
-		file_write_at(file, page->va, page_read_bytes, offset);
-		pml4_set_dirty(thread_current()->pml4, page->va, 0);
-	}
+	// 	file_write_at(file, page->va, page_read_bytes, offset);
+	// 	pml4_set_dirty(thread_current()->pml4, page->va, 0);
+	// }
 
-	pml4_clear_page(thread_current()->pml4, page->va);
+	// pml4_clear_page(thread_current()->pml4, page->va);
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
-	free(page->frame);
+	// free(page->frame);
 }
 
 /* Do the mmap */

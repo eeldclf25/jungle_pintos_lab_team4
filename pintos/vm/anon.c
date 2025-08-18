@@ -31,7 +31,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
 
-	anon_page->flag = type;
+	anon_page->type = type;
 
 	return true;
 }
