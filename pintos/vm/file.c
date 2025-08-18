@@ -89,34 +89,36 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
-	/* 1. 현재 프로세스의 spt 가져오기 */
-	struct supplemental_page_table *spt = &thread_current()->spt;
+	uint32_t read_bytes = length > file_length (file) ? file_length (file) : length;
+	uint32_t zero_bytes = PGSIZE - read_bytes % PGSIZE;
 	void *page_start_addr = addr;
+	enum vm_type uninit_type = VM_FILE | VM_MARKER_FILE_START;
 
-	/* 2. length 만큼 페이지 할당하기 */
-	while (length > 0) {
-		/* 할당하려는 자리에 이미 페이지가 있는지 확인 */
-		if (spt_find_page(spt, addr))
-			return NULL;
+	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+	ASSERT (pg_ofs (addr) == 0);
+	ASSERT (offset % PGSIZE == 0);
 
-		size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
+	while (read_bytes > 0 || zero_bytes > 0) {
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+		struct load_arg *aux = malloc (sizeof (struct load_arg));
+		if (aux == NULL) PANIC("mmap_lazy_load_aux malloc failed");
 
-		struct load_arg *aux = (struct load_arg *)malloc(sizeof(struct load_arg));
-		aux->file = file;
+		aux->file = file_reopen (file);
 		aux->ofs = offset;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 
-		/* 인자(init) 확인 필요 (lazy_load_segment 써야 하는지)!!!!!!!!!!!!!! */
-		if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, NULL, aux)) {
-			free(aux);
+		if (!vm_alloc_page_with_initializer (uninit_type, addr, writable, lazy_load_segment, aux)) {
+			free (aux);
 			return NULL;
 		}
 
-		addr += PGSIZE;
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
 		offset += page_read_bytes;
-		length -= page_read_bytes;
+		addr += PGSIZE;
+		uninit_type = VM_FILE;
 	}
 
 	return page_start_addr;

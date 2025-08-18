@@ -958,7 +958,7 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	struct load_arg *segment = (struct load_arg *) aux;
 	bool succ;
@@ -1047,32 +1047,36 @@ done:
 	return success;
 }
 
-void *
-process_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
-	/* check 1 : addr(0이 아닌 유저 영역), length의 유효성 */
-	if (addr == NULL || is_kernel_vaddr(addr) || length == 0)
+void*
+process_mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	struct thread *curr = thread_current ();
+	struct fd_node *fd_node = NULL;
+
+	if (pg_round_down (addr) != addr || pg_round_down (offset) != offset || addr + length == 0)
 		return NULL;
 
-	/* check 2 : addr이 page-align 됨 */
-	if (pg_round_down(addr) != addr)
+	if ((fd_node = process_check_fd (fd)) == NULL || fd_node->type != FD_FILE)
 		return NULL;
 
-	/* check 3 : 기존 페이지와 겹치지 않음 */
-	if (spt_find_page(&thread_current()->spt, addr) != NULL)
+	if (length == 0 || offset > file_length (fd_node->file))
 		return NULL;
 
-	struct fd_node *fd_node = process_check_fd(fd);
-	if (fd_node == NULL)
-		return NULL;
-
-	/* check 4 : 파일이 stdin/out이 아님 */
-	if (fd_node->type != FD_FILE)
-		return NULL;
-
-	/* check 5 : 파일 크기의 유효성 */
-	if (file_length(fd_node->file) == 0 || length + offset > file_length(fd_node->file))
-		return NULL;
+	for (void * check_addr = addr; check_addr < pg_round_up (addr + length); check_addr += PGSIZE)
+		if (spt_find_page (&curr->spt, check_addr) != NULL || is_kernel_vaddr (check_addr))
+			return NULL;
 	
-	return do_mmap(addr, length, writable, fd_node->file, offset);
+	return do_mmap (addr, length, writable, fd_node->file, offset);
+}
+
+void
+process_munmap (void *addr) {
+	struct thread *curr = thread_current ();
+	struct page *start_page = NULL;
+
+	if ((start_page = spt_find_page (&curr->spt, addr)) == NULL)
+		return;
+	
+	if (start_page->uninit.type & VM_MARKER_FILE_START || start_page->file.type & VM_MARKER_FILE_START)
+		do_munmap (addr);
 }
 #endif /* VM */
