@@ -1003,7 +1003,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
-		struct load_arg *aux = malloc(sizeof (struct load_arg));
+		struct load_arg *aux = malloc (sizeof (struct load_arg));
 		if (aux == NULL) PANIC("lazy_load_aux malloc failed");
 		
 		aux->file = file;
@@ -1012,7 +1012,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		aux->page_zero_bytes = page_zero_bytes;
 
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux)) {
-			free(aux);
+			free (aux);
 			return false;
 		}
 
